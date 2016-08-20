@@ -30,6 +30,14 @@ from sphinx.util.osutil import SEP, copyfile
 from sphinx.util.console import bold, darkgreen
 from sphinx.writers.latex import LaTeXWriter
 
+try:
+    from PIL import Image        # check for the Python Imaging Library
+except ImportError:
+    try:
+        import Image
+    except ImportError:
+        Image = None
+
 
 class LaTeXBuilder(Builder):
     """
@@ -41,6 +49,8 @@ class LaTeXBuilder(Builder):
     usepackages = []
 
     def init(self):
+        if Image:
+            self.supported_image_types.append('image/gif')
         self.docnames = []
         self.document_data = []
         texescape.init()
@@ -62,6 +72,18 @@ class LaTeXBuilder(Builder):
 
     def get_outdated_docs(self):
         return 'all documents'  # for now
+
+    def post_process_images(self, doctree):
+        """
+        Overwrites gif paths produced within base class
+        post_process_images method.
+        """
+        super(LaTeXBuilder, self).post_process_images(doctree)
+        if Image:
+            for img_src, img_dest in iteritems(self.images):
+                img_name, ext = path.splitext(img_dest)
+                if ext == '.gif':
+                    self.images[img_src] = "{0}_gif2png.png".format(img_name)
 
     def get_target_uri(self, docname, typ=None):
         if docname not in self.docnames:
@@ -191,7 +213,11 @@ class LaTeXBuilder(Builder):
         if self.images:
             self.info(bold('copying images...'), nonl=1)
             for src, dest in iteritems(self.images):
+                destname, ext = path.splitext(dest)
                 self.info(' '+src, nonl=1)
+                if Image and destname.endswith('_gif2png') and ext == '.png':
+                    self.gif2png(src, dest)
+                    continue
                 copyfile(path.join(self.srcdir, src),
                          path.join(self.outdir, dest))
             self.info()
@@ -222,3 +248,12 @@ class LaTeXBuilder(Builder):
             elif not path.isfile(logotarget):
                 copyfile(path.join(self.confdir, self.config.latex_logo), logotarget)
         self.info('done')
+
+    def gif2png(self, img_src, img_dest):
+        """
+        LaTeX can't handle GIF images directly, so this method converts GIF to PNG images.
+        """
+        srcpath = path.join(self.srcdir, img_src)
+        destpath = path.join(self.outdir, img_dest)
+        gif = Image.open(srcpath).convert("RGBA")
+        gif.save(destpath, "PNG")
